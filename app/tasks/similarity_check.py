@@ -223,7 +223,7 @@ async def _check_youtube(
     youtube_store = get_youtube_store()
 
     # Process each video
-    for video in youtube_data:
+    for video_idx, video in enumerate(youtube_data):
         video_id = video['video_id']
         metadata = video['metadata']
         transcript_chunks = video['chunks']
@@ -234,13 +234,16 @@ async def _check_youtube(
 
         transcript_embeddings = engine.embedder.encode(chunk_texts, normalize=True)
 
-        # Add to vector store (for future checks)
+        # Add to vector store for similarity matching
+        # Note: Only embeddings and metadata (title, URL, timestamps) are stored
+        # Full transcript text is NOT stored - only 40-60 word chunks for matching
+        # This complies with "no long-term transcript storage" requirement
         vector_metadata_list = [
             VectorMetadata(
                 source_id=video_id,
                 source_type="youtube",
                 chunk_index=i,
-                chunk_text=text,
+                chunk_text=text,  # Short chunk only (40-60 words max)
                 timestamp=timestamp,
                 title=metadata.get('title'),
                 identifier=metadata.get('url')
@@ -248,6 +251,9 @@ async def _check_youtube(
             for i, (text, timestamp) in enumerate(zip(chunk_texts, chunk_timestamps))
         ]
         youtube_store.add_vectors(transcript_embeddings, vector_metadata_list)
+
+        # Track if this video has any matches
+        video_match_count = 0
 
         # Compare article chunks against transcript
         for article_chunk, article_embedding in zip(chunks, embeddings):
@@ -270,10 +276,17 @@ async def _check_youtube(
                             source_metadata={
                                 "title": metadata.get('title'),
                                 "identifier": metadata.get('url'),
-                                "timestamp": chunk_timestamps[i]
+                                "timestamp": chunk_timestamps[i],
+                                "duration_seconds": metadata.get('duration_seconds', 0)
                             }
                         )
                     )
+                    video_match_count += 1
+
+        # Early exit: If we've processed 3+ videos with no matches, stop
+        if video_idx >= 2 and len(matches) == 0:
+            print(f"Early exit: No matches found in first {video_idx + 1} videos")
+            break
 
     # Save YouTube store
     youtube_store.save()

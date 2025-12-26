@@ -42,8 +42,9 @@ cd Similarity-Intelligence-Platform
 # Copy environment file
 cp .env.example .env
 
-# Edit .env and set SECRET_KEY (required)
-# Generate with: openssl rand -hex 32
+# Edit .env and set required variables:
+# - SECRET_KEY (required) - Generate with: openssl rand -hex 32
+# - YOUTUBE_API_KEY (required for YouTube search) - Get from https://console.cloud.google.com/
 ```
 
 ### 2. Start Services
@@ -208,10 +209,17 @@ Key environment variables (see `.env.example` for all):
 # Security (REQUIRED)
 SECRET_KEY=your-32-char-secret-key
 
+# YouTube API (REQUIRED for video search)
+YOUTUBE_API_KEY=your-youtube-api-key
+# Get your API key at: https://console.cloud.google.com/
+# Enable YouTube Data API v3 for your project
+
 # Processing Limits
 MAX_ARTICLE_WORDS=1500
 MAX_CHUNK_WORDS=60
 MAX_CANDIDATE_SOURCES=100
+MAX_YOUTUBE_VIDEOS=5
+MAX_VIDEO_DURATION_MINUTES=30
 
 # Similarity Thresholds
 SIMILARITY_THRESHOLD_LOW=0.65

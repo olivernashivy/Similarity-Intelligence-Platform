@@ -38,6 +38,7 @@ class AggregatedMatch:
     snippet: Optional[str] = None
     explanation: Optional[str] = None
     risk_contribution: Optional[str] = None
+    coverage_percentage: Optional[float] = None  # For YouTube: % of video with matches
 
 
 class SimilarityEngine:
@@ -189,6 +190,13 @@ class SimilarityEngine:
                 first_match.source_type
             )
 
+            # Calculate coverage for YouTube videos
+            coverage_percentage = None
+            if first_match.source_type == "youtube":
+                coverage_percentage = self._calculate_youtube_coverage(
+                    source_matches, source_metadata
+                )
+
             aggregated.append(
                 AggregatedMatch(
                     source_id=source_id,
@@ -202,7 +210,8 @@ class SimilarityEngine:
                     matches=source_matches[:5],  # Limit to top 5
                     snippet=snippet,
                     explanation=explanation,
-                    risk_contribution=risk_contribution
+                    risk_contribution=risk_contribution,
+                    coverage_percentage=coverage_percentage
                 )
             )
 
@@ -236,6 +245,20 @@ class SimilarityEngine:
         match_count = len(matches)
         percentage = int(similarity * 100)
 
+        # Special message for YouTube (spoken content)
+        if source_type == "youtube":
+            label = "Possible similarity to spoken content"
+            if match_count == 1:
+                return (
+                    f"{label}: Found 1 matching segment with {percentage}% similarity."
+                )
+            else:
+                return (
+                    f"{label}: Found {match_count} matching segments with up to {percentage}% similarity. "
+                    f"This suggests potential overlap with the video's spoken content or ideas."
+                )
+
+        # Standard message for other sources
         if match_count == 1:
             return (
                 f"Found 1 matching segment with {percentage}% similarity "
@@ -263,6 +286,43 @@ class SimilarityEngine:
             Filtered matches
         """
         return [m for m in matches if m.similarity_score >= threshold]
+
+    def _calculate_youtube_coverage(
+        self,
+        matches: List[SimilarityMatch],
+        source_metadata: Dict
+    ) -> float:
+        """
+        Calculate coverage percentage for YouTube video.
+
+        Args:
+            matches: List of matches for this video
+            source_metadata: Video metadata with duration
+
+        Returns:
+            Coverage percentage (0-100)
+        """
+        duration_seconds = source_metadata.get("duration_seconds", 0)
+
+        if duration_seconds == 0:
+            return 0.0
+
+        # Parse timestamps and calculate total matched duration
+        # Timestamps are in format "MM:SS"
+        matched_durations = []
+        for match in matches:
+            if match.source_metadata and "timestamp" in match.source_metadata:
+                # Each match represents roughly 40-60 word chunk (~30 seconds of speech)
+                # Approximate chunk duration
+                matched_durations.append(30)  # seconds per chunk
+
+        # Calculate total unique duration (rough estimate)
+        total_matched_seconds = sum(matched_durations)
+
+        # Calculate percentage, cap at 100
+        coverage = min((total_matched_seconds / duration_seconds) * 100, 100.0)
+
+        return round(coverage, 2)
 
     def get_threshold_for_sensitivity(self, sensitivity: str) -> float:
         """
