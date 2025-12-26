@@ -166,13 +166,15 @@ class YouTubeTranscriptFetcher:
         chunk_start_timestamp = None
 
         for segment in segments:
-            words = segment.text.split()
+            # Remove filler words before processing
+            cleaned_text = self._remove_filler_words(segment.text)
+            words = cleaned_text.split()
             word_count = len(words)
 
             if chunk_start_timestamp is None:
                 chunk_start_timestamp = segment.timestamp
 
-            current_chunk.append(segment.text)
+            current_chunk.append(cleaned_text)
             current_word_count += word_count
 
             # Create chunk when reaching target size
@@ -191,6 +193,36 @@ class YouTubeTranscriptFetcher:
             chunks.append((chunk_text, chunk_start_timestamp or "00:00"))
 
         return chunks
+
+    def _remove_filler_words(self, text: str) -> str:
+        """
+        Remove filler words from transcript text.
+
+        Args:
+            text: Input text
+
+        Returns:
+            Text with filler words removed
+        """
+        # Common filler words in spoken content
+        filler_words = {
+            'um', 'umm', 'uh', 'uhh', 'hmm', 'mhmm',
+            'like', 'you know', 'i mean',
+            'sort of', 'kind of',
+            'basically', 'actually', 'literally',
+            'seriously', 'honestly', 'obviously'
+        }
+
+        # Normalize and split
+        words = text.lower().split()
+
+        # Filter out filler words
+        filtered_words = [
+            word for word in words
+            if word not in filler_words
+        ]
+
+        return ' '.join(filtered_words)
 
     def search_videos_by_keywords(
         self,
@@ -228,14 +260,23 @@ class YouTubeTranscriptFetcher:
                 safeSearch='moderate'
             ).execute()
 
-            # Extract video IDs
-            video_ids = [
-                item['id']['videoId']
+            # Extract video IDs and titles for filtering
+            video_items = [
+                {
+                    'id': item['id']['videoId'],
+                    'title': item['snippet']['title']
+                }
                 for item in search_response.get('items', [])
                 if item['id'].get('kind') == 'youtube#video'
             ]
 
-            # Get detailed info and filter by duration
+            # Filter out generic/viral content
+            filtered_items = self._filter_generic_content(video_items)
+
+            # Get IDs for duration filtering
+            video_ids = [item['id'] for item in filtered_items]
+
+            # Filter by duration
             filtered_ids = self._filter_videos_by_duration(video_ids)
 
             return filtered_ids[:max_results]
@@ -246,6 +287,47 @@ class YouTubeTranscriptFetcher:
         except Exception as e:
             print(f"Error searching YouTube videos: {e}")
             return []
+
+    def _filter_generic_content(self, video_items: List[Dict]) -> List[Dict]:
+        """
+        Filter out generic/viral content that is not contextually relevant.
+
+        Args:
+            video_items: List of dicts with 'id' and 'title'
+
+        Returns:
+            Filtered list of video items
+        """
+        # Patterns indicating generic/viral content
+        generic_patterns = [
+            'compilation', 'compilations',
+            'funny moments', 'best moments',
+            'top 10', 'top 5', 'top ten', 'top five',
+            'fails', 'fail compilation',
+            'challenge', 'challenges',
+            'prank', 'pranks',
+            'reaction', 'reacts to',
+            'unboxing',
+            'vlog', 'daily vlog',
+            'try not to',
+            'vs', 'versus',
+            'clickbait',
+            'you won\'t believe'
+        ]
+
+        filtered = []
+        for item in video_items:
+            title_lower = item['title'].lower()
+
+            # Check if title contains generic patterns
+            is_generic = any(pattern in title_lower for pattern in generic_patterns)
+
+            if not is_generic:
+                filtered.append(item)
+            else:
+                print(f"Filtering out generic content: {item['title']}")
+
+        return filtered
 
     def _filter_videos_by_duration(self, video_ids: List[str]) -> List[str]:
         """
@@ -385,6 +467,10 @@ def search_and_fetch_transcripts(
 ) -> List[Dict]:
     """
     Search for relevant YouTube videos and fetch their transcripts.
+
+    IMPORTANT: Transcripts are fetched temporarily for similarity analysis only.
+    Full transcripts are NOT stored long-term - only embeddings and short chunks
+    (40-60 words) are cached for performance. This complies with privacy requirements.
 
     Args:
         article_text: Article text to extract keywords from
