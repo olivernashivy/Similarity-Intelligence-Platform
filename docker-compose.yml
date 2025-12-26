@@ -1,72 +1,107 @@
 version: '3.8'
 
 services:
-  # Redis cache service
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: similarity_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: similarity_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (for Celery)
   redis:
     image: redis:7-alpine
-    container_name: similarity-redis
+    container_name: similarity_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
-      retries: 3
-    networks:
-      - similarity-network
+      timeout: 5s
+      retries: 5
 
-  # Main API service
+  # FastAPI Application
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: similarity-api
+    build: .
+    container_name: similarity_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
     environment:
-      # YouTube API
-      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
-
-      # OpenAI API
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-
-      # Redis configuration
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-
-      # Similarity settings
-      - MAX_VIDEOS_PER_CHECK=10
-      - MAX_VIDEO_DURATION_MINUTES=20
-      - SIMILARITY_THRESHOLD=0.80
-      - CHUNK_SIZE_WORDS=50
-      - MAX_TRANSCRIPT_LENGTH=10000
-
-      # Cache settings
-      - CACHE_ENABLED=true
-      - CACHE_TTL_HOURS=24
-
-      # API settings
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - LOG_LEVEL=INFO
-
-      # Embedding model
-      - EMBEDDING_MODEL=text-embedding-3-small
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/similarity_platform
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=dev-secret-key-change-in-production-use-at-least-32-chars
+      - DEBUG=True
+      - ENVIRONMENT=development
+    volumes:
+      - .:/app
+      - faiss_data:/app/data/faiss_index
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - similarity-network
-    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker
+  celery_worker:
+    build: .
+    container_name: similarity_celery_worker
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/similarity_platform
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=dev-secret-key-change-in-production-use-at-least-32-chars
+      - DEBUG=True
+      - ENVIRONMENT=development
+    volumes:
+      - .:/app
+      - faiss_data:/app/data/faiss_index
+    depends_on:
+      - db
+      - redis
+      - api
+
+  # Celery Flower (monitoring)
+  celery_flower:
+    build: .
+    container_name: similarity_celery_flower
+    command: celery -A app.tasks.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - redis
+      - celery_worker
 
 volumes:
+  postgres_data:
   redis_data:
-    driver: local
+  faiss_data:
 
 networks:
-  similarity-network:
-    driver: bridge
+  default:
+    name: similarity_network
