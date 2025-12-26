@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "similarity-intelligence-platform"
+version = "0.1.0"
+description = "YouTube similarity detection subsystem for identifying semantic similarities between articles and video transcripts"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Similarity Intelligence Platform Team"}
+]
+keywords = ["youtube", "similarity", "nlp", "embeddings", "transcripts"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[project.urls]
+Homepage = "https://github.com/olivernashivy/Similarity-Intelligence-Platform"
+Repository = "https://github.com/olivernashivy/Similarity-Intelligence-Platform"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100

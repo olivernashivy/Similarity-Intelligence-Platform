@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Redis cache service
+  redis:
+    image: redis:7-alpine
+    container_name: similarity-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - similarity-network
+
+  # Main API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: similarity-api
+    ports:
+      - "8000:8000"
+    environment:
+      # YouTube API
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+
+      # OpenAI API
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # Redis configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+
+      # Similarity settings
+      - MAX_VIDEOS_PER_CHECK=10
+      - MAX_VIDEO_DURATION_MINUTES=20
+      - SIMILARITY_THRESHOLD=0.80
+      - CHUNK_SIZE_WORDS=50
+      - MAX_TRANSCRIPT_LENGTH=10000
+
+      # Cache settings
+      - CACHE_ENABLED=true
+      - CACHE_TTL_HOURS=24
+
+      # API settings
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - LOG_LEVEL=INFO
+
+      # Embedding model
+      - EMBEDDING_MODEL=text-embedding-3-small
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - similarity-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  similarity-network:
+    driver: bridge
