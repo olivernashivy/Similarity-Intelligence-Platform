@@ -1,6 +1,6 @@
 """Source model for reference content."""
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Integer, Text, JSON, Index
+from sqlalchemy import Column, String, DateTime, Integer, Text, JSON, Index, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
@@ -38,7 +38,7 @@ class Source(Base):
     organization_id = Column(UUID(as_uuid=True), nullable=True)  # If private source
 
     # Additional metadata
-    metadata = Column(JSON, default=dict, nullable=False)
+    source_metadata = Column(JSON, default=dict, nullable=False)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

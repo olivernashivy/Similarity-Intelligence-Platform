@@ -45,7 +45,7 @@ class Check(Base):
     estimated_cost_usd = Column(Float, nullable=True)
 
     # Additional metadata
-    metadata = Column(JSON, default=dict, nullable=False)
+    check_metadata = Column(JSON, default=dict, nullable=False)
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

@@ -33,7 +33,7 @@ class UsageLog(Base):
     # Additional metadata
     user_agent = Column(String(500), nullable=True)
     ip_address = Column(String(50), nullable=True)
-    metadata = Column(JSON, default=dict, nullable=False)
+    log_metadata = Column(JSON, default=dict, nullable=False)
 
     # Timestamp
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)

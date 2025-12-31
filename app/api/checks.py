@@ -58,7 +58,7 @@ async def create_similarity_check(
         check_youtube="youtube" in request.sources,
         sensitivity=request.sensitivity,
         store_embeddings=request.store_embeddings and organization.allow_corpus_inclusion,
-        metadata=request.metadata or {},
+        check_metadata=request.metadata or {},
         expires_at=calculate_ttl_expiry(days=7)
     )
 
