@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db, close_db
-from app.api import checks, usage
+from app.api import checks, usage, auth, users, organizations
 
 
 @asynccontextmanager
@@ -40,14 +40,57 @@ app = FastAPI(
     - Semantic similarity detection
     - Cost-bounded operations (~$0.004 per check)
     - Privacy-preserving design
+    - User & organization management
+    - API key management
 
     ## Authentication
-    All endpoints require an API key in the `X-API-Key` header.
 
-    ## Typical Flow
-    1. POST /v1/check - Submit article (returns job_id)
-    2. GET /v1/check/{job_id} - Poll for results
-    3. GET /v1/usage - Check usage stats
+    ### For Similarity Checks (API Key)
+    Use `X-API-Key` header with your organization's API key:
+    ```
+    X-API-Key: sk_live_your_api_key_here
+    ```
+
+    ### For User Management (JWT Token)
+    1. Register: `POST /v1/auth/register`
+    2. Login: `POST /v1/auth/login` (returns JWT token)
+    3. Use token: Include in `Authorization: Bearer <token>` header
+
+    ## Quick Start
+
+    ### 1. Register (creates organization + admin user)
+    ```bash
+    curl -X POST http://localhost:8000/v1/auth/register \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "email": "admin@example.com",
+        "username": "admin",
+        "password": "SecurePass123!",
+        "organization_name": "My Company"
+      }'
+    ```
+
+    ### 2. Create API Key
+    ```bash
+    curl -X POST http://localhost:8000/v1/organizations/current/api-keys \\
+      -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "name": "Production Key",
+        "rate_limit_per_minute": 100
+      }'
+    ```
+
+    ### 3. Check Similarity
+    ```bash
+    curl -X POST http://localhost:8000/v1/check \\
+      -H "X-API-Key: YOUR_API_KEY" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "article_text": "Your article content...",
+        "sources": ["articles", "youtube"]
+      }'
+    ```
 
     ## Similarity Signals
     - **Low Risk** (0-65%): Minimal overlap
@@ -81,6 +124,12 @@ async def health_check():
 
 
 # Include routers
+# Authentication & User Management (no API key required)
+app.include_router(auth.router, prefix=settings.api_v1_prefix)
+app.include_router(users.router, prefix=settings.api_v1_prefix)
+app.include_router(organizations.router, prefix=settings.api_v1_prefix)
+
+# Similarity Checking (requires API key)
 app.include_router(checks.router, prefix=settings.api_v1_prefix)
 app.include_router(usage.router, prefix=settings.api_v1_prefix)
 

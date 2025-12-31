@@ -36,6 +36,7 @@ class Organization(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relationships
+    users = relationship("User", foreign_keys="User.organization_id", cascade="all, delete-orphan")
     api_keys = relationship("APIKey", back_populates="organization", cascade="all, delete-orphan")
     checks = relationship("Check", back_populates="organization", cascade="all, delete-orphan")
     usage_logs = relationship("UsageLog", back_populates="organization", cascade="all, delete-orphan")
