@@ -34,6 +34,19 @@ def generate_api_key() -> Tuple[str, str]:
     return raw_key, key_hash
 
 
+def hash_api_key(raw_key: str) -> str:
+    """
+    Hash an API key.
+
+    Args:
+        raw_key: Raw API key
+
+    Returns:
+        Hashed API key
+    """
+    return pwd_context.hash(raw_key)
+
+
 def verify_api_key(raw_key: str, key_hash: str) -> bool:
     """
     Verify an API key against its hash.

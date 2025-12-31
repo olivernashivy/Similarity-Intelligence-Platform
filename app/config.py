@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     secret_key: str = Field(..., min_length=32)
     api_key_hash_algorithm: str = "bcrypt"
     rate_limit_per_minute: int = 60
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60
+    jwt_refresh_token_expire_days: int = 7
 
     # Embeddings
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
