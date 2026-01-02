@@ -12,6 +12,7 @@ asyncpg==0.29.0
 # Async & Background Jobs
 celery==5.3.6
 redis==5.0.1
+flower==2.0.1
 
 # ML & Embeddings
 sentence-transformers==2.3.1

@@ -120,6 +120,10 @@ class FAISSVectorStore:
         Returns:
             List of (metadata, similarity_score) tuples
         """
+        # Return empty results if index is empty
+        if self.index.ntotal == 0:
+            return []
+
         # Ensure query is 2D and float32
         if query_embedding.ndim == 1:
             query_embedding = query_embedding.reshape(1, -1)
@@ -131,7 +135,7 @@ class FAISSVectorStore:
 
         # Search
         # Request more results to account for filtering
-        search_k = min(k * 3, self.index.ntotal) if filter_fn else k
+        search_k = min(k * 3, self.index.ntotal) if filter_fn else min(k, self.index.ntotal)
         distances, indices = self.index.search(query_embedding, int(search_k))
 
         # Process results
