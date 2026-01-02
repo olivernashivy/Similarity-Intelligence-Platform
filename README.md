@@ -411,4 +411,54 @@ A: Yes! Set `EMBEDDING_MODEL` to any Sentence-Transformers model and update `EMB
 
 ---
 
+## 🔧 Troubleshooting
+
+### Getting 0 Sources Checked?
+
+If similarity checks return `sources_checked: 0`, it means no search sources are configured:
+
+**Quick Diagnosis:**
+```bash
+python scripts/check_search_setup.py
+```
+
+This will tell you what's missing:
+- ❌ YouTube API Key not configured
+- ❌ Article corpus is empty
+
+**Quick Fix:**
+
+1. **Enable YouTube Search:**
+   ```bash
+   # Add to .env file:
+   YOUTUBE_API_KEY=your-api-key-from-google-cloud
+
+   # Restart services:
+   docker-compose restart
+   ```
+
+   Get API key: https://console.cloud.google.com/ → Enable YouTube Data API v3
+
+2. **Add Sample Articles:**
+   ```bash
+   python scripts/seed_sample_articles.py
+   ```
+
+   This adds 10 sample tech articles (ML, Cloud, DevOps, etc.) to test with.
+
+**Detailed Setup Guide:** See [SETUP_SEARCH_SOURCES.md](SETUP_SEARCH_SOURCES.md)
+
+### Other Common Issues
+
+**Problem:** Tests failing with encoding errors
+**Solution:** Input sanitization is now automatic. Update to latest code.
+
+**Problem:** Celery worker not processing jobs
+**Solution:** Check worker logs: `docker-compose logs -f worker`
+
+**Problem:** Database connection errors
+**Solution:** Verify DATABASE_URL in .env matches your PostgreSQL setup
+
+---
+
 **Built with ❤️ for publishers and content creators**
