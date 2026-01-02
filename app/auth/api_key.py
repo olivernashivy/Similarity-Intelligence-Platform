@@ -27,10 +27,9 @@ def generate_api_key() -> Tuple[str, str]:
     """
     # Generate a random key
     raw_key = f"sk_live_{secrets.token_urlsafe(32)}"
-
-    # Hash the key
-    key_hash = pwd_context.hash(raw_key)
-
+    # Truncate to 72 bytes for bcrypt
+    raw_key_trunc = raw_key[:72]
+    key_hash = pwd_context.hash(raw_key_trunc)
     return raw_key, key_hash
 
 
@@ -44,7 +43,8 @@ def hash_api_key(raw_key: str) -> str:
     Returns:
         Hashed API key
     """
-    return pwd_context.hash(raw_key)
+    # Truncate to 72 bytes for bcrypt
+    return pwd_context.hash(raw_key[:72])
 
 
 def verify_api_key(raw_key: str, key_hash: str) -> bool:

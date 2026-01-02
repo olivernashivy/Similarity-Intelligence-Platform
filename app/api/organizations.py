@@ -380,7 +380,7 @@ async def create_api_key(
     """
     # Generate API key
     api_key_value = f"sk_live_{secrets.token_urlsafe(32)}"
-    key_prefix = api_key_value[:12]  # e.g., "sk_live_abc"
+    key_prefix = api_key_value[:15]  # match validation logic
 
     # Hash the key
     key_hash = hash_api_key(api_key_value)

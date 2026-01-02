@@ -1,4 +1,5 @@
 """Authentication schemas."""
+from __future__ import annotations
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
@@ -54,14 +55,6 @@ class RegisterRequest(BaseModel):
         }
 
 
-class LoginResponse(BaseModel):
-    """Login response."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 3600
-    user: "UserResponse"
-
-
 class UserResponse(BaseModel):
     """User information response."""
     id: UUID
@@ -76,6 +69,14 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LoginResponse(BaseModel):
+    """Login response."""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = 3600
+    user: UserResponse
 
 
 class PasswordChangeRequest(BaseModel):

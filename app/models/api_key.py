@@ -19,7 +19,7 @@ class APIKey(Base):
     # Key info
     name = Column(String(255), nullable=False)  # Human-readable name
     key_hash = Column(String(255), unique=True, nullable=False, index=True)  # Hashed API key
-    key_prefix = Column(String(10), nullable=False)  # First few chars for identification (e.g., "sk_live_abc")
+    key_prefix = Column(String(32), nullable=False)  # First few chars for identification (e.g., "sk_live_abc")
 
     # Permissions & limits
     is_active = Column(Boolean, default=True, nullable=False)

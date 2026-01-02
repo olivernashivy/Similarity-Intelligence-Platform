@@ -17,11 +17,13 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Install Python dependencies
+# Step 1: Copy only requirements first
 COPY requirements.txt .
+
+# Step 2: Install dependencies (this layer is cached unless requirements.txt changes)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Step 3: Copy the rest of your code
 COPY . .
 
 # Create data directory for FAISS index
