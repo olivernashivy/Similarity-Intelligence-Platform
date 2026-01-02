@@ -1,8 +1,14 @@
 # Search Sources Setup Guide
 
-## 🚨 **Current Issue: 0 Sources Being Searched**
+## 🎉 **NEW: Real-Time Web Article Search**
 
-Your similarity checking is returning 0 results because **neither YouTube search nor article search is configured**.
+The system now searches **both local corpus AND the internet** for articles!
+
+When you search for articles, the system will:
+1. ✅ Search your local article corpus (if populated)
+2. ✅ **Search the web in real-time** (Google + Bing)
+3. ✅ Fetch and analyze the most relevant articles
+4. ✅ Return combined results from both sources
 
 ---
 
@@ -86,7 +92,128 @@ curl -X GET http://localhost:8000/v1/check/{check_id} \
 
 ---
 
-## **Problem 2: Article Search Not Working**
+## **Problem 2: Web Article Search Setup**
+
+### **NEW: Real-Time Web Article Search**
+
+The system can now search the internet for articles in real-time! Set up Google Custom Search and/or Bing Search API for this feature.
+
+### How to Set Up Web Article Search:
+
+#### **Option A: Google Custom Search (Recommended)**
+
+**Free Tier**: 100 searches/day
+**Paid**: $5 per 1,000 queries after free tier
+
+**Steps:**
+
+1. **Create Google Cloud Project**:
+   - Go to https://console.cloud.google.com/
+   - Create a new project or select existing
+
+2. **Enable Custom Search API**:
+   - Navigate to "APIs & Services" → "Enable APIs and Services"
+   - Search for "Custom Search API"
+   - Click "Enable"
+
+3. **Create API Key**:
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "API Key"
+   - Copy the API key
+
+4. **Create Custom Search Engine**:
+   - Go to https://programmablesearchengine.google.com/
+   - Click "Add" to create a new search engine
+   - **Sites to search**: Enter `*` (to search the entire web)
+   - Click "Create"
+   - Copy the **Search Engine ID** (starts with a number/letters like `017576662512468239146:omuauf_lfve`)
+
+5. **Add to Environment**:
+   ```bash
+   # Add to .env file:
+   GOOGLE_SEARCH_API_KEY=AIzaSyC-your-api-key-here
+   GOOGLE_SEARCH_ENGINE_ID=your-search-engine-id-here
+   ```
+
+6. **Restart Application**
+
+#### **Option B: Bing Search API**
+
+**Free Tier**: 1,000 transactions/month (S1 tier)
+**Paid**: Various pricing tiers available
+
+**Steps:**
+
+1. **Create Microsoft Azure Account**:
+   - Go to https://portal.azure.com/
+   - Sign up or sign in
+
+2. **Create Bing Search Resource**:
+   - Click "Create a resource"
+   - Search for "Bing Search v7"
+   - Click "Create"
+   - Choose pricing tier (F1 = Free)
+   - Create resource
+
+3. **Get API Key**:
+   - Navigate to your Bing Search resource
+   - Go to "Keys and Endpoint"
+   - Copy one of the keys
+
+4. **Add to Environment**:
+   ```bash
+   # Add to .env file:
+   BING_SEARCH_API_KEY=your-bing-api-key-here
+   ```
+
+5. **Restart Application**
+
+#### **Best Practice: Use Both**
+
+For maximum coverage, configure **both** Google and Bing:
+- The system will use both engines simultaneously
+- Results are combined and deduplicated
+- Increases diversity of sources found
+- More resilient if one API has issues
+
+```bash
+# In .env - Configure both for best results:
+GOOGLE_SEARCH_API_KEY=your-google-key
+GOOGLE_SEARCH_ENGINE_ID=your-engine-id
+BING_SEARCH_API_KEY=your-bing-key
+```
+
+### **How Web Article Search Works:**
+
+When you submit a similarity check:
+
+1. **Extract Keywords**: System extracts top keywords from your article
+2. **Search Web**: Queries Google and/or Bing for relevant articles
+3. **Fetch Content**: Downloads article content from top 10 URLs
+4. **Extract Text**: Uses newspaper3k + BeautifulSoup to extract clean article text
+5. **Chunk & Embed**: Processes each web article into semantic chunks
+6. **Compare**: Compares your article against web articles in real-time
+7. **Cache**: Caches fetched articles for 24 hours (configurable)
+
+### **Cost Estimates:**
+
+**Google Custom Search:**
+- Free tier: 100 searches/day = ~50 similarity checks/day
+- After free tier: $5 per 1,000 queries = $0.005 per check
+
+**Bing Search:**
+- S1 (Free): 1,000 transactions/month = ~500 checks/month
+- S2: 10,000 transactions/month = $7/month
+
+**Typical Check Cost:**
+- 1 search query per check
+- ~10 article fetches per check
+- ~2-4 seconds processing time
+- **Total cost: $0.005 - $0.01 per check**
+
+---
+
+## **Problem 3: Local Article Corpus (Optional)**
 
 ### Why It's Failing:
 - **No article corpus exists** → Nothing to search against
@@ -183,7 +310,8 @@ python scripts/seed_sample_articles.py
 
 ## **Testing After Setup**
 
-### 1. Test YouTube + Articles Together:
+### 1. Test YouTube + Web Articles Together:
+Now with real-time web search, you don't need a local corpus!
 ```bash
 curl -X POST http://localhost:8000/v1/check \
   -H "X-API-Key: YOUR_API_KEY" \
@@ -204,24 +332,44 @@ curl -X GET http://localhost:8000/v1/check/{check_id} \
 ```json
 {
   "status": "completed",
-  "sources_checked": 8,  // Should be > 0
-  "match_count": 3,      // Depends on similarity
+  "sources_checked": 15,  // YouTube + Web articles
+  "match_count": 5,
   "report": {
     "matches": [
       {
         "source_type": "youtube",
         "source_title": "Introduction to Machine Learning",
+        "source_identifier": "https://youtube.com/watch?v=abc123",
         "similarity_score": 0.78
       },
       {
         "source_type": "article",
-        "source_title": "AI Development Guide",
-        "similarity_score": 0.72
+        "source_title": "Deep Learning in 2024",
+        "source_identifier": "https://techblog.com/deep-learning",
+        "similarity_score": 0.75,
+        "snippet": "Deep learning models have revolutionized AI...",
+        "source_metadata": {
+          "source": "web_google"  // Shows it came from web search
+        }
+      },
+      {
+        "source_type": "article",
+        "source_title": "Neural Networks Explained",
+        "source_identifier": "https://medium.com/neural-nets",
+        "similarity_score": 0.72,
+        "source_metadata": {
+          "source": "web_bing"  // From Bing search
+        }
       }
     ]
   }
 }
 ```
+
+**Note**: Web article matches will include:
+- `source_metadata.source`: Shows which search engine found it (`web_google`, `web_bing`, or `local_corpus`)
+- `snippet`: Preview of the article content
+- `source_identifier`: Full URL to the article
 
 ---
 

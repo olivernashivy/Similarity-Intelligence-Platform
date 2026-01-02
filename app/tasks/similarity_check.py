@@ -79,10 +79,10 @@ async def _process_check_async(check_id: str, article_text: str):
             # Get similarity threshold
             threshold = engine.get_threshold_for_sensitivity(check.sensitivity)
 
-            # Check against articles
+            # Check against articles (local corpus + web search)
             if check.check_articles:
                 article_matches = await _check_articles(
-                    chunks, embeddings, threshold, engine
+                    chunks, embeddings, threshold, engine, article_text
                 )
                 all_matches.extend(article_matches)
                 sources_checked += len(set(m.source_id for m in article_matches))
@@ -167,39 +167,171 @@ async def _process_check_async(check_id: str, article_text: str):
 
 
 async def _check_articles(
-    chunks, embeddings, threshold, engine
+    chunks, embeddings, threshold, engine, article_text
 ) -> List[SimilarityMatch]:
-    """Check against article corpus."""
+    """
+    Check against article corpus (both local and web).
+
+    Searches:
+    1. Local vector store (if populated)
+    2. Real-time web search (Google + Bing)
+    """
     matches = []
 
-    # Get article vector store
+    # 1. Check local article corpus
     article_store = get_article_store()
+    local_matches = 0
 
-    # Search for each chunk
-    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        # Search vector store
-        results = article_store.search(
-            embedding,
-            k=10,
-            filter_fn=lambda meta: meta.source_type == "article"
+    if article_store.count() > 0:
+        print(f"Searching local article corpus ({article_store.count()} vectors)...")
+
+        # Search for each chunk
+        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            # Search vector store
+            results = article_store.search(
+                embedding,
+                k=10,
+                filter_fn=lambda meta: meta.source_type == "article"
+            )
+
+            # Convert to SimilarityMatch
+            for meta, score in results:
+                if score >= threshold:
+                    matches.append(
+                        SimilarityMatch(
+                            submission_chunk=chunk,
+                            source_chunk_text=meta.chunk_text,
+                            source_id=meta.source_id,
+                            source_type="article",
+                            similarity_score=score,
+                            source_metadata={
+                                "title": meta.title,
+                                "identifier": meta.identifier,
+                                "source": "local_corpus"
+                            }
+                        )
+                    )
+                    local_matches += 1
+
+        print(f"Found {local_matches} matches in local corpus")
+    else:
+        print("Local article corpus is empty, skipping...")
+
+    # 2. Search web for articles
+    web_matches = await _check_web_articles(
+        article_text, chunks, embeddings, threshold, engine
+    )
+    matches.extend(web_matches)
+
+    print(f"Total article matches: {len(matches)} (local: {local_matches}, web: {len(web_matches)})")
+    return matches
+
+
+async def _check_web_articles(
+    article_text, chunks, embeddings, threshold, engine
+) -> List[SimilarityMatch]:
+    """Search web for similar articles in real-time."""
+    from app.core.web_search import search_web_articles
+    from app.core.article_fetcher import ArticleFetcher
+    from app.core.chunking import extract_keywords
+
+    matches = []
+
+    # Check if any search engines are configured
+    from app.core.web_search import WebArticleSearcher
+    searcher = WebArticleSearcher()
+
+    if not searcher.google_client and not searcher.bing_api_key:
+        print("No web search APIs configured, skipping web article search")
+        return matches
+
+    print("Searching web for similar articles...")
+
+    try:
+        # Extract keywords from article
+        keywords = extract_keywords(article_text, top_k=10)
+        print(f"Search keywords: {', '.join(keywords[:5])}...")
+
+        # Search for articles
+        search_results = search_web_articles(
+            keywords,
+            max_results=settings.max_web_articles,
+            filter_results=True
         )
 
-        # Convert to SimilarityMatch
-        for meta, score in results:
-            if score >= threshold:
-                matches.append(
-                    SimilarityMatch(
-                        submission_chunk=chunk,
-                        source_chunk_text=meta.chunk_text,
-                        source_id=meta.source_id,
-                        source_type="article",
-                        similarity_score=score,
-                        source_metadata={
-                            "title": meta.title,
-                            "identifier": meta.identifier
-                        }
-                    )
+        if not search_results:
+            print("No web articles found")
+            return matches
+
+        print(f"Found {len(search_results)} web articles to analyze")
+
+        # Fetch article content
+        fetcher = ArticleFetcher(
+            use_cache=True,
+            timeout=settings.web_article_fetch_timeout
+        )
+
+        # Fetch and compare articles
+        for idx, result in enumerate(search_results[:settings.max_web_articles]):
+            print(f"[{idx+1}/{len(search_results)}] Fetching: {result.title[:50]}...")
+
+            # Fetch article content
+            article_content = fetcher.fetch_article(result.url)
+
+            if not article_content or len(article_content) < 100:
+                print(f"   Skipped (failed to fetch or too short)")
+                continue
+
+            # Chunk the web article
+            web_chunks = engine.chunker.chunk_text(article_content, normalize=True)
+
+            if not web_chunks:
+                print(f"   Skipped (no chunks)")
+                continue
+
+            print(f"   Fetched {len(article_content)} chars, {len(web_chunks)} chunks")
+
+            # Generate embeddings for web article chunks
+            web_chunk_texts = [chunk.text for chunk in web_chunks]
+            web_embeddings = engine.embedder.encode(web_chunk_texts, normalize=True)
+
+            # Compare submission chunks against web article chunks
+            article_match_count = 0
+            for submission_chunk, submission_embedding in zip(chunks, embeddings):
+                # Calculate similarities with all web chunks
+                similarities = engine.embedder.batch_similarity(
+                    submission_embedding,
+                    web_embeddings
                 )
+
+                # Find matches above threshold
+                for i, score in enumerate(similarities):
+                    if score >= threshold:
+                        matches.append(
+                            SimilarityMatch(
+                                submission_chunk=submission_chunk,
+                                source_chunk_text=web_chunk_texts[i],
+                                source_id=result.url,
+                                source_type="article",
+                                similarity_score=float(score),
+                                source_metadata={
+                                    "title": result.title,
+                                    "identifier": result.url,
+                                    "snippet": result.snippet,
+                                    "source": f"web_{result.source}"
+                                }
+                            )
+                        )
+                        article_match_count += 1
+
+            print(f"   Found {article_match_count} matches")
+
+        print(f"Web article search complete: {len(matches)} total matches")
+
+    except Exception as e:
+        print(f"Error searching web articles: {e}")
+        import traceback
+        traceback.print_exc()
 
     return matches
 
