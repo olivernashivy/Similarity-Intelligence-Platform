@@ -1,9 +1,11 @@
 """User management endpoints."""
 from uuid import UUID
 from datetime import datetime
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.database import get_db
 from app.models.user import User
@@ -15,7 +17,16 @@ from app.schemas.user import (
 )
 from app.auth.dependencies import get_current_user, get_current_admin_user
 from app.auth.jwt import get_password_hash
+from app.utils.sanitization import sanitize_text
+from app.utils.error_handling import (
+    ValidationError,
+    DatabaseError,
+    log_error,
+    log_info,
+    log_warning
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/users", tags=["User Management"])
 
 
@@ -72,43 +83,110 @@ async def create_user(
 
     Creates a new user with the specified role (admin, member, or viewer).
     """
-    # Check if email already exists
-    result = await db.execute(
-        select(User).where(User.email == user_data.email)
+    log_info(
+        f"Creating new user: {user_data.email}",
+        context="create_user",
+        extra={
+            "admin_user_id": str(current_user.id),
+            "new_user_email": user_data.email
+        }
     )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+
+    try:
+        # Sanitize inputs
+        email = sanitize_text(user_data.email, max_length=255).strip().lower()
+        username = sanitize_text(user_data.username, max_length=100).strip()
+        full_name = sanitize_text(user_data.full_name, max_length=255).strip() if user_data.full_name else None
+
+        # Validate email
+        if not email or '@' not in email:
+            raise ValidationError("Invalid email format", field="email")
+
+        # Validate username
+        if not username or len(username) < 3:
+            raise ValidationError("Username must be at least 3 characters", field="username")
+
+        # Check if email already exists
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        if result.scalar_one_or_none():
+            log_warning(
+                f"User creation failed: Email already exists - {email}",
+                context="create_user"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+
+        # Check if username already exists
+        result = await db.execute(
+            select(User).where(User.username == username)
+        )
+        if result.scalar_one_or_none():
+            log_warning(
+                f"User creation failed: Username already taken - {username}",
+                context="create_user"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username already taken"
+            )
+
+        # Create user
+        hashed_password = get_password_hash(user_data.password)
+        user = User(
+            organization_id=current_user.organization_id,
+            email=email,
+            username=username,
+            hashed_password=hashed_password,
+            full_name=full_name,
+            role=user_data.role,
+            is_active=True
         )
 
-    # Check if username already exists
-    result = await db.execute(
-        select(User).where(User.username == user_data.username)
-    )
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already taken"
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        log_info(
+            f"User created successfully: {user.id}",
+            context="create_user",
+            extra={
+                "user_id": str(user.id),
+                "organization_id": str(current_user.organization_id),
+                "role": user_data.role
+            }
         )
 
-    # Create user
-    hashed_password = get_password_hash(user_data.password)
-    user = User(
-        organization_id=current_user.organization_id,
-        email=user_data.email,
-        username=user_data.username,
-        hashed_password=hashed_password,
-        full_name=user_data.full_name,
-        role=user_data.role,
-        is_active=True
-    )
+        return UserResponse.model_validate(user)
 
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    except (ValidationError, HTTPException):
+        raise
 
-    return UserResponse.model_validate(user)
+    except SQLAlchemyError as e:
+        log_error(
+            e,
+            context="create_user",
+            user_id=str(current_user.id),
+            extra={"error_type": "database"}
+        )
+        raise DatabaseError(
+            "Failed to create user due to database error",
+            details={"error": str(e)}
+        )
+
+    except Exception as e:
+        log_error(
+            e,
+            context="create_user",
+            user_id=str(current_user.id)
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user"
+        )
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -164,64 +242,118 @@ async def update_user(
 
     Admins can update any user in their organization.
     """
-    result = await db.execute(
-        select(User).where(User.id == user_id)
+    log_info(
+        f"Updating user: {user_id}",
+        context="update_user",
+        extra={"admin_user_id": str(current_user.id), "target_user_id": str(user_id)}
     )
-    user = result.scalar_one_or_none()
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-
-    # Check same organization
-    if user.organization_id != current_user.organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
-
-    # Update fields
-    if user_data.email is not None:
-        # Check email uniqueness
+    try:
         result = await db.execute(
-            select(User).where(User.email == user_data.email).where(User.id != user_id)
+            select(User).where(User.id == user_id)
         )
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already in use"
-            )
-        user.email = user_data.email
+        user = result.scalar_one_or_none()
 
-    if user_data.username is not None:
-        # Check username uniqueness
-        result = await db.execute(
-            select(User).where(User.username == user_data.username).where(User.id != user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+
+        # Check same organization
+        if user.organization_id != current_user.organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+
+        # Update fields
+        if user_data.email is not None:
+            # Sanitize email
+            email = sanitize_text(user_data.email, max_length=255).strip().lower()
+
+            # Validate email
+            if not email or '@' not in email:
+                raise ValidationError("Invalid email format", field="email")
+
+            # Check email uniqueness
+            result = await db.execute(
+                select(User).where(User.email == email).where(User.id != user_id)
+            )
+            if result.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already in use"
+                )
+            user.email = email
+
+        if user_data.username is not None:
+            # Sanitize username
+            username = sanitize_text(user_data.username, max_length=100).strip()
+
+            # Validate username
+            if not username or len(username) < 3:
+                raise ValidationError("Username must be at least 3 characters", field="username")
+
+            # Check username uniqueness
+            result = await db.execute(
+                select(User).where(User.username == username).where(User.id != user_id)
+            )
+            if result.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already taken"
+                )
+            user.username = username
+
+        if user_data.full_name is not None:
+            user.full_name = sanitize_text(user_data.full_name, max_length=255).strip()
+
+        if user_data.role is not None:
+            user.role = user_data.role
+
+        if user_data.is_active is not None:
+            user.is_active = user_data.is_active
+
+        user.updated_at = datetime.utcnow()
+
+        await db.commit()
+        await db.refresh(user)
+
+        log_info(
+            f"User updated successfully: {user.id}",
+            context="update_user",
+            extra={"user_id": str(user.id), "admin_user_id": str(current_user.id)}
         )
-        if result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already taken"
-            )
-        user.username = user_data.username
 
-    if user_data.full_name is not None:
-        user.full_name = user_data.full_name
+        return UserResponse.model_validate(user)
 
-    if user_data.role is not None:
-        user.role = user_data.role
+    except (ValidationError, HTTPException):
+        raise
 
-    if user_data.is_active is not None:
-        user.is_active = user_data.is_active
+    except SQLAlchemyError as e:
+        log_error(
+            e,
+            context="update_user",
+            user_id=str(current_user.id),
+            extra={"target_user_id": str(user_id), "error_type": "database"}
+        )
+        raise DatabaseError(
+            "Failed to update user due to database error",
+            details={"error": str(e)}
+        )
 
-    user.updated_at = datetime.utcnow()
-
-    await db.commit()
-    await db.refresh(user)
-
-    return UserResponse.model_validate(user)
+    except Exception as e:
+        log_error(
+            e,
+            context="update_user",
+            user_id=str(current_user.id),
+            extra={"target_user_id": str(user_id)}
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user"
+        )
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
