@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     # YouTube API
     youtube_api_key: str = ""
 
+    # Web Search APIs (for real-time article search)
+    google_search_api_key: str = ""
+    google_search_engine_id: str = ""  # Custom Search Engine ID
+    bing_search_api_key: str = ""
+
+    # Web Search Settings
+    max_web_articles: int = 10  # Max articles to fetch from web search
+    web_article_fetch_timeout: int = 10  # Seconds
+    web_article_cache_hours: int = 24  # Cache fetched articles
+
     # Processing Limits
     max_article_words: int = 1500
     max_chunk_words: int = 60

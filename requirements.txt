@@ -29,6 +29,12 @@ isodate==0.6.1
 nltk==3.8.1
 langdetect==1.0.9
 
+# Web Scraping & Article Extraction
+newspaper3k==0.2.8
+beautifulsoup4==4.12.3
+lxml==5.1.0
+requests==2.31.0
+
 # Security & Validation
 pydantic==2.5.3
 pydantic-settings==2.1.0
